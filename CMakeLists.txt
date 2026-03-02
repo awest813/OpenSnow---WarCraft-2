@@ -92,10 +92,6 @@ else()
 	)
 endif()
 
-set(warextract_SRCS
-	warextract.c
-)
-
 # Find all libraries
 
 option(ENABLE_STATIC "Compile Wargus binaries as static executable" OFF)
