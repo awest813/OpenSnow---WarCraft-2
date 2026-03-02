@@ -1,0 +1,41 @@
+name: Lua Syntax Check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/**/*.lua'
+      - '.github/workflows/lua-check.yml'
+  pull_request:
+    paths:
+      - 'scripts/**/*.lua'
+      - '.github/workflows/lua-check.yml'
+
+jobs:
+  lua-syntax:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Lua
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y lua5.4
+
+    - name: Check Lua syntax for all scripts
+      run: |
+        echo "Checking Lua syntax with luac -p ..."
+        failed=0
+        while IFS= read -r -d '' file; do
+          if ! luac5.4 -p "$file" 2>&1; then
+            echo "SYNTAX ERROR: $file"
+            failed=1
+          fi
+        done < <(find scripts -name '*.lua' -print0)
+        if [ "$failed" -eq 1 ]; then
+          echo "One or more Lua files have syntax errors."
+          exit 1
+        fi
+        echo "All Lua scripts passed syntax check."

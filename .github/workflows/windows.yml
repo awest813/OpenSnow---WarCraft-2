@@ -1,0 +1,79 @@
+name: Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '**'
+      - '!.github/**'
+      - '!**.yml'
+      - '.github/workflows/windows.yml'
+      - '!**.md'
+      - '!.vscode/**'
+      - '!doc/**'
+
+  pull_request:
+    paths:
+      - '**'
+      - '!.github/**'
+      - '!**.yml'
+      - '.github/workflows/windows.yml'
+      - '!**.md'
+      - '!.vscode/**'
+      - '!doc/**'
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Wargus
+      uses: actions/checkout@v4
+      with:
+        repository: Wargus/wargus
+        submodules: recursive
+        path: wargus
+
+    - name: Checkout Stratagus
+      uses: actions/checkout@v4
+      with:
+        repository: Wargus/stratagus
+        submodules: recursive
+        path: stratagus
+
+    - name: Install dependencies (vcpkg)
+      run: |
+        vcpkg install sdl2 sdl2-mixer sdl2-image lua libpng zlib bzip2 --triplet x64-windows
+      env:
+        VCPKG_DEFAULT_TRIPLET: x64-windows
+
+    - name: cmake --version
+      run: cmake --version
+
+    - name: Build Stratagus
+      shell: bash
+      run: |
+        cmake stratagus -B stratagus/build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE="${VCPKG_INSTALLATION_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+          -DVCPKG_TARGET_TRIPLET=x64-windows \
+          -DBUILD_VENDORED_LUA=ON \
+          -DBUILD_VENDORED_SDL=OFF \
+          -DBUILD_VENDORED_MEDIA_LIBS=OFF \
+          -DBUILD_TESTING=OFF
+        cmake --build stratagus/build --config Release
+
+    - name: Build Wargus
+      shell: bash
+      run: |
+        cmake wargus -B wargus/build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE="${VCPKG_INSTALLATION_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+          -DVCPKG_TARGET_TRIPLET=x64-windows \
+          -DSTRATAGUS_INCLUDE_DIR=../stratagus/gameheaders \
+          -DSTRATAGUS=../stratagus/build/Release/stratagus.exe
+        cmake --build wargus/build --config Release
+
+    - name: Smoke test – wartool
+      shell: bash
+      run: wargus/build/Release/wartool.exe --help || true

@@ -224,7 +224,7 @@ function RunJoinIpMenu()
   menu:addFullButton(_("Co~!nnect"), "n", 60, 180, function()
       local selectedserver = servers[serverlist:getSelected() + 1]
       if selectedserver then
-         local ip = string.match(selectedserver, "[0-9\.]+")
+         local ip = string.match(selectedserver, "[0-9%.]+")
          print("Joining " .. ip)
          NetworkDiscoverServers(false)
          NetworkSetupServerAddress(ip)
@@ -1068,7 +1068,7 @@ function RunOnlineMenu()
          local selectedGame = gamesObjectList[games:getSelected() + 1]
          if selectedGame then
             local ip, port
-            for k, v in string.gmatch(selectedGame.Host, "([0-9\.]+):(%d+)") do
+            for k, v in string.gmatch(selectedGame.Host, "([0-9%.]+):(%d+)") do
                ip = k
                port = tonumber(v)
             end

@@ -2606,16 +2606,189 @@ void Usage(const char* name)
 {
 	printf("%s\n\
 Usage: %s [-e|-n] [-v] [-r] [-V] [-h|--help] archive-directory [destination-directory]\n\
+       %s --check <destination-directory>\n\
+       %s --diagnostics <destination-directory>\n\
 \t-e\tThe archive is expansion compatible (default: autodetect)\n\
 \t-n\tThe archive is not expansion compatible (default: autodetect)\n\
 \t-v\tExtract and convert videos\n\
 \t-r\tRip sound tracks from CD-ROM (needs original CD, no image/emulation)\n\
 \t-V\tShow version\n\
 \t-h\tShow usage (this text)\n\
+\t--check\t\tCheck integrity of extracted assets in destination-directory\n\
+\t--diagnostics\tPrint diagnostic report for the destination-directory\n\
 archive-directory\tDirectory which includes the archives maindat.war or the battle.net tomes...\n\
 destination-directory\tDirectory where the extracted files are placed.\n"
-	,NameLine, name);
+	,NameLine, name, name, name);
 	fflush(stdout);
+}
+
+/**
+**  Integrity check result codes.
+*/
+#define INTEGRITY_OK       0
+#define INTEGRITY_PARTIAL  1
+#define INTEGRITY_MISSING  2
+
+struct IntegrityItem {
+	const char* path;
+	const char* description;
+	bool required;
+};
+
+static const IntegrityItem IntegrityChecklist[] = {
+	{ "extracted",                           "extraction version marker",      true  },
+	{ REEXTRACT_MARKER_FILE,                 "re-extraction marker",           true  },
+	{ "scripts/wc2-config.lua",              "game configuration script",      true  },
+	{ "graphics/ui/title.png",               "title screen graphic",           true  },
+	{ "graphics/ui/cursors/cross.png",       "cursor graphic",                 false },
+	{ "graphics/missiles/red_cross.png",     "missile graphic",                false },
+	{ "sounds/misc/building_explosion.wav",  "explosion sound effect",         false },
+	{ nullptr, nullptr, false }
+};
+
+/**
+**  Check the integrity of extracted game assets.
+**  Returns INTEGRITY_OK, INTEGRITY_PARTIAL, or INTEGRITY_MISSING.
+*/
+int CheckIntegrity(const char* destDir, bool verbose)
+{
+	char buf[8192];
+	struct stat st;
+	int missing_required = 0;
+	int missing_optional = 0;
+	int present = 0;
+
+	if (verbose) {
+		printf("Integrity check for: %s\n", destDir);
+		printf("%-55s  %s\n", "Asset", "Status");
+		printf("%-55s  %s\n", "-----", "------");
+	}
+
+	for (int i = 0; IntegrityChecklist[i].path != nullptr; ++i) {
+		snprintf(buf, sizeof(buf), "%s/%s", destDir, IntegrityChecklist[i].path);
+		bool found = (stat(buf, &st) == 0);
+
+		if (verbose) {
+			printf("%-55s  %s\n",
+				IntegrityChecklist[i].description,
+				found ? "OK" : (IntegrityChecklist[i].required ? "MISSING (required)" : "MISSING (optional)"));
+		}
+
+		if (found) {
+			++present;
+		} else if (IntegrityChecklist[i].required) {
+			++missing_required;
+		} else {
+			++missing_optional;
+		}
+	}
+
+	/* Also check the extracted version matches the current tool */
+	snprintf(buf, sizeof(buf), "%s/extracted", destDir);
+	FILE* vf = fopen(buf, "r");
+	if (vf) {
+		char version[32] = {'\0'};
+		if (fgets(version, sizeof(version), vf)) {
+			/* strip trailing newline */
+			size_t len = strlen(version);
+			if (len > 0 && version[len - 1] == '\n') version[len - 1] = '\0';
+			if (strcmp(version, VERSION) != 0) {
+				if (verbose) {
+					printf("WARNING: extracted version (%s) does not match tool version (%s)\n",
+						version, VERSION);
+					printf("  Re-running wartool is recommended.\n");
+				}
+			} else if (verbose) {
+				printf("Extracted version matches tool version (%s). Good.\n", VERSION);
+			}
+		}
+		fclose(vf);
+	}
+
+	if (verbose) {
+		printf("\nSummary: %d present, %d required missing, %d optional missing\n",
+			present, missing_required, missing_optional);
+	}
+
+	if (missing_required > 0) {
+		return INTEGRITY_MISSING;
+	}
+	if (missing_optional > 0) {
+		return INTEGRITY_PARTIAL;
+	}
+	return INTEGRITY_OK;
+}
+
+/**
+**  Print a diagnostics report about the extraction state of destDir.
+*/
+void PrintDiagnostics(const char* destDir)
+{
+	char buf[8192];
+	struct stat st;
+
+	printf("=== Wargus Extraction Diagnostics ===\n");
+	printf("Wartool version : %s\n", VERSION);
+
+#if defined(_WIN32) || defined(WIN32)
+	printf("Platform        : Windows\n");
+#elif defined(__APPLE__)
+	printf("Platform        : macOS\n");
+#else
+	printf("Platform        : Linux/Unix\n");
+#endif
+
+	printf("Destination dir : %s\n", destDir);
+
+	/* Check whether the directory itself exists */
+	if (stat(destDir, &st) != 0 || !(st.st_mode & S_IFDIR)) {
+		printf("ERROR: destination directory does not exist or is not a directory.\n");
+		printf("  Run wartool with an archive-directory and destination-directory to extract.\n");
+		return;
+	}
+
+#if defined(_WIN32) || defined(WIN32)
+	{
+		TCHAR appdata[MAX_PATH];
+		if (GetEnvironmentVariable(TEXT("APPDATA"), appdata, MAX_PATH)) {
+			printf("Log file        : %s\\Stratagus\\wartool.txt\n", appdata);
+		}
+	}
+#else
+	printf("Log file        : (stdout only on this platform)\n");
+#endif
+
+	printf("\n--- Asset Integrity ---\n");
+	int result = CheckIntegrity(destDir, true);
+
+	printf("\n--- Directory Counts ---\n");
+	const char* countDirs[] = {
+		"graphics", "sounds", "scripts", "maps", "campaigns", nullptr
+	};
+	for (int i = 0; countDirs[i] != nullptr; ++i) {
+		snprintf(buf, sizeof(buf), "%s/%s", destDir, countDirs[i]);
+		if (stat(buf, &st) == 0 && (st.st_mode & S_IFDIR)) {
+			printf("  %-12s  present\n", countDirs[i]);
+		} else {
+			printf("  %-12s  MISSING\n", countDirs[i]);
+		}
+	}
+
+	printf("\n--- Overall Result ---\n");
+	switch (result) {
+		case INTEGRITY_OK:
+			printf("PASS: All required assets are present.\n");
+			break;
+		case INTEGRITY_PARTIAL:
+			printf("WARN: Required assets present, but some optional assets are missing.\n");
+			printf("  This may be normal if you did not extract optional content.\n");
+			break;
+		case INTEGRITY_MISSING:
+			printf("FAIL: One or more required assets are missing.\n");
+			printf("  Re-run wartool to perform a full extraction.\n");
+			break;
+	}
+	printf("======================================\n");
 }
 
 int ExtractImplicitExpansion(char** argv, int a) {
@@ -2775,6 +2948,24 @@ int main(int argc, char** argv)
 	if(argc == 1){
 		Usage(argv[0]);
 		return 1;
+	}
+
+	/* Handle standalone modes that don't perform extraction */
+	if (!strcmp(argv[a], "--check")) {
+		if (argc < 3) {
+			fprintf(stderr, "Usage: %s --check <destination-directory>\n", argv[0]);
+			return 1;
+		}
+		int result = CheckIntegrity(argv[a + 1], true);
+		return (result == INTEGRITY_OK || result == INTEGRITY_PARTIAL) ? 0 : 1;
+	}
+	if (!strcmp(argv[a], "--diagnostics")) {
+		if (argc < 3) {
+			fprintf(stderr, "Usage: %s --diagnostics <destination-directory>\n", argv[0]);
+			return 1;
+		}
+		PrintDiagnostics(argv[a + 1]);
+		return 0;
 	}
 
 	while (argc >= 2) {

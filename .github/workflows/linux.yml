@@ -1,0 +1,91 @@
+name: Linux
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '**'
+      - '!.github/**'
+      - '!**.yml'
+      - '.github/workflows/linux.yml'
+      - '!**.md'
+      - '!.vscode/**'
+      - '!doc/**'
+
+  pull_request:
+    paths:
+      - '**'
+      - '!.github/**'
+      - '!**.yml'
+      - '.github/workflows/linux.yml'
+      - '!**.md'
+      - '!.vscode/**'
+      - '!doc/**'
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout Wargus
+      uses: actions/checkout@v4
+      with:
+        repository: Wargus/wargus
+        submodules: recursive
+        path: wargus
+
+    - name: Checkout Stratagus
+      uses: actions/checkout@v4
+      with:
+        repository: Wargus/stratagus
+        submodules: recursive
+        path: stratagus
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          libsdl2-dev \
+          libsdl2-mixer-dev \
+          libsdl2-image-dev \
+          liblua5.4-dev \
+          libpng-dev \
+          zlib1g-dev \
+          libbz2-dev \
+          libx11-dev \
+          libgtk2.0-dev \
+          ffmpeg \
+          libogg-dev \
+          libvorbis-dev \
+          libtheora-dev \
+          libopenal-dev \
+          libmikmod-dev \
+          libfluidsynth-dev
+
+    - name: cmake --version
+      run: cmake --version
+
+    - name: Build Stratagus
+      run: |
+        cmake stratagus -B stratagus/build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_VENDORED_LUA=ON \
+          -DBUILD_VENDORED_SDL=OFF \
+          -DBUILD_VENDORED_MEDIA_LIBS=OFF \
+          -DBUILD_TESTING=OFF
+        cmake --build stratagus/build --config Release -- -j$(nproc)
+
+    - name: Build Wargus
+      run: |
+        cmake wargus -B wargus/build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DSTRATAGUS_INCLUDE_DIR=../stratagus/gameheaders \
+          -DSTRATAGUS=../stratagus/build/stratagus
+        cmake --build wargus/build --config Release -- -j$(nproc)
+
+    - name: Smoke test – wartool --help
+      run: wargus/build/wartool --help || true
+
+    - name: Smoke test – pudconvert
+      run: wargus/build/pudconvert --help 2>&1 | head -5 || true
